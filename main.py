@@ -1,10 +1,11 @@
+import gc
 import os
-from machine import Pin,I2C,SPI,PWM,Timer,ADC
+from machine import Pin, SPI, PWM
 import framebuf
 import time
 Vbat_Pin = 29
 
-#Pin definition  引脚定义
+#Pin definition
 I2C_SDA = 6
 I2C_SDL = 7
 I2C_INT = 17
@@ -19,9 +20,9 @@ RST = 13
 
 BL = 25
 
-#LCD Driver  LCD驱动
+#LCD Driver  LCD
 class LCD_1inch28(framebuf.FrameBuffer):
-    def __init__(self): #SPI initialization  SPI初始化
+    def __init__(self): #SPI initialization
         self.width = 240
         self.height = 240
 
@@ -36,7 +37,7 @@ class LCD_1inch28(framebuf.FrameBuffer):
         super().__init__(self.buffer, self.width, self.height, framebuf.RGB565)
         self.init_display()
 
-        #Define color, Micropython fixed to BRG format  定义颜色，Micropython固定为BRG格式
+        #Define color, Micropython fixed to BRG format
         self.red   =   0x07E0
         self.green =   0x001f
         self.blue  =   0xf800
@@ -44,30 +45,30 @@ class LCD_1inch28(framebuf.FrameBuffer):
         self.black =   0x0000
         self.brown =   0X8430
 
-        self.fill(self.white) #Clear screen  清屏
-        self.show()#Show  显示
+        self.fill(self.white) #Clear screen
+        self.show()#Show
 
         self.pwm = PWM(Pin(BL))
-        self.pwm.freq(5000) #Turn on the backlight  开背光
+        self.pwm.freq(5000) #Turn on the backlight
 
-    def write_cmd(self, cmd): #Write command  写命令
+    def write_cmd(self, cmd): #Write command
         self.cs(1)
         self.dc(0)
         self.cs(0)
         self.spi.write(bytearray([cmd]))
         self.cs(1)
 
-    def write_data(self, buf): #Write data  写数据
+    def write_data(self, buf): #Write data
         self.cs(1)
         self.dc(1)
         self.cs(0)
         self.spi.write(bytearray([buf]))
         self.cs(1)
 
-    def set_bl_pwm(self,duty): #Set screen brightness  设置屏幕亮度
+    def set_bl_pwm(self,duty): #Set screen brightness
         self.pwm.duty_u16(duty)#max 65535
 
-    def init_display(self): #LCD initialization  LCD初始化
+    def init_display(self): #LCD initialization  LCD
         """Initialize dispaly"""
         self.rst(1)
         time.sleep(0.01)
@@ -310,7 +311,6 @@ class LCD_1inch28(framebuf.FrameBuffer):
 
         self.write_cmd(0x29)
 
-    #设置窗口
     def setWindows(self,Xstart,Ystart,Xend,Yend):
         self.write_cmd(0x2A)
         self.write_data(0x00)
@@ -326,7 +326,7 @@ class LCD_1inch28(framebuf.FrameBuffer):
 
         self.write_cmd(0x2C)
 
-    #Show  显示
+    #Show
     def show(self):
         self.setWindows(0,0,self.width,self.height)
 
@@ -338,52 +338,41 @@ class LCD_1inch28(framebuf.FrameBuffer):
         
 
     def show_image(self, image_path):
-        # Open the BMP file
         with open(image_path, 'rb') as f:
             # Read the BMP header (54 bytes)
             header = f.read(54)
-
+            
             # Extract width and height from the header
             width = header[18] + (header[19] << 8)
             height = header[22] + (header[23] << 8)
-
-            # Check if the image size matches the display size
+            
             if width != self.width or height != self.height:
                 raise ValueError("Image must be 240x240 pixels.")
-
-            # Create a buffer for the image
-            buffer = bytearray(self.height * self.width * 2)  # 2 bytes per pixel for RGB565
-
-            # Read pixel data
-            for y in range(height):
-                for x in range(width):
-                    # Read 3 bytes for each pixel (BGR format)
-                    pixel_data = f.read(3)  # Read Blue, Green, Red
-
-                    # Check if we read 3 bytes
-                    if len(pixel_data) < 3:
-                        raise ValueError("Unexpected end of file while reading pixel data.")
-
-                    b = pixel_data[0]  # Blue
-                    g = pixel_data[1]  # Green
-                    r = pixel_data[2]  # Red
-
-                    # Convert RGB to RGB565 format
-                    rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
-
-                    # Write to buffer (2 bytes per pixel)
-                    buffer[(y * width + x) * 2] = (rgb565 >> 8) & 0xFF  # High byte
-                    buffer[(y * width + x) * 2 + 1] = rgb565 & 0xFF      # Low byte
-
-            # Set the buffer to the LCD's buffer
-            self.buffer = buffer  # Update the LCD's buffer
-            self.setWindows(0, 0, self.width, self.height)  # Set the window for the display
-
-            # Send the buffer to the display
+            
+            # Set the window for the display
+            self.setWindows(0, 0, self.width, self.height)
+            
+            # Prepare for data transfer
             self.cs(1)
             self.dc(1)
             self.cs(0)
-            self.spi.write(self.buffer)
+            
+            # Read and send pixel data in chunks
+            chunk_size = 240 * 10  # Process 10 rows at a time
+            buffer = bytearray(chunk_size * 2)  # 2 bytes per pixel for RGB565
+            
+            for _ in range(0, height, 10):
+                for i in range(chunk_size):
+                    pixel_data = f.read(3)  # Read Blue, Green, Red
+                    if len(pixel_data) < 3:
+                        break
+                    r, g, b = pixel_data[2], pixel_data[1], pixel_data[0]
+                    rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+                    buffer[i*2] = (rgb565 >> 8) & 0xFF  # High byte
+                    buffer[i*2 + 1] = rgb565 & 0xFF     # Low byte
+                
+                self.spi.write(buffer)
+            
             self.cs(1)
 
     '''
@@ -392,7 +381,6 @@ class LCD_1inch28(framebuf.FrameBuffer):
         is increased by 10
     '''
     #Partial display, the starting point of the local display here is reduced by 10, and the end point is increased by 10
-    #局部显示，这里的局部显示起点减少10，终点增加10
     def Windows_show(self,Xstart,Ystart,Xend,Yend):
         if Xstart > Xend:
             data = Xstart
@@ -422,7 +410,6 @@ class LCD_1inch28(framebuf.FrameBuffer):
         self.cs(1)
 
     #Write characters, size is the font size, the minimum is 1
-    #写字符，size为字体大小,最小为1
     def write_text(self,text,x,y,size,color):
         ''' Method to write Text on OLED/LCD Displays
             with a variable font size
@@ -450,78 +437,22 @@ class LCD_1inch28(framebuf.FrameBuffer):
         for px_info in info:
             self.fill_rect(size*px_info[0] - (size-1)*x , size*px_info[1] - (size-1)*y, size, size, px_info[2])
 
-def load_image_to_buffer(image_path):
-    # Open the BMP file
-    with open(image_path, 'rb') as f:
-        # Read the BMP header (54 bytes)
-        header = f.read(54)
-        
-        # Extract width and height from the header
-        width = header[18] + (header[19] << 8)
-        height = header[22] + (header[23] << 8)
+def image_path_generator():
+    for file in os.listdir():
+        if file.lower().endswith('.bmp'):
+            yield file
 
-        # Check if the image size matches the display size
-        if width != 240 or height != 240:
-            raise ValueError("Image must be 240x240 pixels.")
-
-        # Create a buffer for the image
-        buffer = bytearray(240 * 240)  # Assuming 16-bit color depth (RGB565)
-
-        # Read pixel data
-        for y in range(height):
-            for x in range(width):
-                # Each pixel is represented by 3 bytes (BGR)
-                b = ord(f.read(1))  # Blue
-                g = ord(f.read(1))  # Green
-                r = ord(f.read(1))  # Red
-
-                # Convert RGB to RGB565 format
-                rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
-                print(rgb565)
-
-                # Write to buffer (2 bytes per pixel)
-                buffer[(y * width + x) * 2] = (rgb565 >> 8) & 0xFF  # High byte
-                buffer[(y * width + x) * 2 + 1] = rgb565 & 0xFF     # Low byte
-
-        # Set the buffer to the LCD's buffer
-        LCD.buffer = buffer  # Assuming LCD has a buffer attribute
-
-    return buffer
-
-
-def load_images(folder):
-    images = []
-    try:
-        for filename in os.listdir(folder):
-            if filename.endswith('.bmp'):  # Assuming BMP format for images
-                images.append(folder + '/' + filename)
-        images.sort()  # Sort images alphabetically
-    except OSError as e:
-        print(f"Error accessing folder '{folder}': {e}")
-    return images
-
-# Function to show images in a slideshow
-def slideshow(images, dwell):
+def slideshow(lcd, dwell):
     while True:
-        for image in images:
-            LCD.show_image(image)  # Show the image directly
-            time.sleep(dwell)  # Wait for the specified dwell time
+        for image_path in image_path_generator():
+            lcd.show_image(image_path)
+            time.sleep(dwell)
+            gc.collect()  # Force garbage collection
             
 # Main execution block
 if __name__ == '__main__':
     # Initialize the display
-    LCD = LCD_1inch28()  # Create an instance of the LCD
-    LCD.set_bl_pwm(65535)  # Set backlight to maximum brightness
+    lcd = LCD_1inch28()
 
-    # Initialize the touch controller, passing the LCD instance
-    #Touch = Touch_CST816T(mode=1, LCD=LCD)  # Adjust mode as necessary
-
-    # Load images from the folder
-    image_folder = "/images"
-    images = load_images(image_folder)
-
-    # Start the slideshow with a dwell time of 60 seconds
-    slideshow(images, 5)
-
-
-
+    # Start the slideshow
+    slideshow(lcd, 2)  # Change dwell time as needed
