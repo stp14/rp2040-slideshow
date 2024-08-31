@@ -339,62 +339,6 @@ class LCD_1inch28(framebuf.FrameBuffer):
         display here is reduced by 10, and the end point
         is increased by 10
     '''
-    #Partial display, the starting point of the local display here is reduced by 10, and the end point is increased by 10
-    def Windows_show(self,Xstart,Ystart,Xend,Yend):
-        if Xstart > Xend:
-            data = Xstart
-            Xstart = Xend
-            Xend = data
-            
-        if (Ystart > Yend):        
-            data = Ystart
-            Ystart = Yend
-            Yend = data
-            
-        if Xstart <= 10:
-            Xstart = 10
-        if Ystart <= 10:
-            Ystart = 10
-            
-        Xstart -= 10;Xend += 10
-        Ystart -= 10;Yend += 10
-        
-        self.setWindows(Xstart,Ystart,Xend,Yend)      
-        self.cs(1)
-        self.dc(1)
-        self.cs(0)
-        for i in range (Ystart,Yend-1):             
-            Addr = (Xstart * 2) + (i * 240 * 2)                
-            self.spi.write(self.buffer[Addr : Addr+((Xend-Xstart)*2)])
-        self.cs(1)
-
-    #Write characters, size is the font size, the minimum is 1  
-    def write_text(self,text,x,y,size,color):
-        ''' Method to write Text on OLED/LCD Displays
-            with a variable font size
-
-            Args:
-                text: the string of chars to be displayed
-                x: x co-ordinate of starting position
-                y: y co-ordinate of starting position
-                size: font size of text
-                color: color of text to be displayed
-        '''
-        background = self.pixel(x,y)
-        info = []
-        # Creating reference charaters to read their values
-        self.text(text,x,y,color)
-        for i in range(x,x+(8*len(text))):
-            for j in range(y,y+8):
-                # Fetching amd saving details of pixels, such as
-                # x co-ordinate, y co-ordinate, and color of the pixel
-                px_color = self.pixel(i,j)
-                info.append((i,j,px_color)) if px_color == color else None
-        # Clearing the reference characters from the screen
-        self.text(text,x,y,background)
-        # Writing the custom-sized font characters on screen
-        for px_info in info:
-            self.fill_rect(size*px_info[0] - (size-1)*x , size*px_info[1] - (size-1)*y, size, size, px_info[2]) 
     
     def show_image(self, file_path):
         with open(file_path, 'rb') as f:
@@ -511,228 +455,6 @@ class Touch_CST816T(object):
         if self.l > 100:
             self.l = 50
 
-class QMI8658(object):
-    def __init__(self,address=0X6B):
-        self._address = address
-        self._bus = I2C(id=1,scl=Pin(I2C_SDL),sda=Pin(I2C_SDA),freq=100_000)
-        bRet=self.WhoAmI()
-        if bRet :
-            self.Read_Revision()
-        else    :
-            return NULL
-        self.Config_apply()
-
-    def _read_byte(self,cmd):
-        rec=self._bus.readfrom_mem(int(self._address),int(cmd),1)
-        return rec[0]
-    def _read_block(self, reg, length=1):
-        rec=self._bus.readfrom_mem(int(self._address),int(reg),length)
-        return rec
-    def _read_u16(self,cmd):
-        LSB = self._bus.readfrom_mem(int(self._address),int(cmd),1)
-        MSB = self._bus.readfrom_mem(int(self._address),int(cmd)+1,1)
-        return (MSB[0] << 8) + LSB[0]
-    def _write_byte(self,cmd,val):
-        self._bus.writeto_mem(int(self._address),int(cmd),bytes([int(val)]))
-        
-    def WhoAmI(self):
-        bRet=False
-        if (0x05) == self._read_byte(0x00):
-            bRet = True
-        return bRet
-    def Read_Revision(self):
-        return self._read_byte(0x01)
-    def Config_apply(self):
-        # REG CTRL1
-        self._write_byte(0x02,0x60)
-        # REG CTRL2 : QMI8658AccRange_8g  and QMI8658AccOdr_1000Hz
-        self._write_byte(0x03,0x23)
-        # REG CTRL3 : QMI8658GyrRange_512dps and QMI8658GyrOdr_1000Hz
-        self._write_byte(0x04,0x53)
-        # REG CTRL4 : No
-        self._write_byte(0x05,0x00)
-        # REG CTRL5 : Enable Gyroscope And Accelerometer Low-Pass Filter 
-        self._write_byte(0x06,0x11)
-        # REG CTRL6 : Disables Motion on Demand.
-        self._write_byte(0x07,0x00)
-        # REG CTRL7 : Enable Gyroscope And Accelerometer
-        self._write_byte(0x08,0x03)
-
-    def Read_Raw_XYZ(self):
-        xyz=[0,0,0,0,0,0]
-        raw_timestamp = self._read_block(0x30,3)
-        raw_acc_xyz=self._read_block(0x35,6)
-        raw_gyro_xyz=self._read_block(0x3b,6)
-        raw_xyz=self._read_block(0x35,12)
-        timestamp = (raw_timestamp[2]<<16)|(raw_timestamp[1]<<8)|(raw_timestamp[0])
-        for i in range(6):
-            # xyz[i]=(raw_acc_xyz[(i*2)+1]<<8)|(raw_acc_xyz[i*2])
-            # xyz[i+3]=(raw_gyro_xyz[((i+3)*2)+1]<<8)|(raw_gyro_xyz[(i+3)*2])
-            xyz[i] = (raw_xyz[(i*2)+1]<<8)|(raw_xyz[i*2])
-            if xyz[i] >= 32767:
-                xyz[i] = xyz[i]-65535
-        return xyz
-    def Read_XYZ(self):
-        xyz=[0,0,0,0,0,0]
-        raw_xyz=self.Read_Raw_XYZ()  
-        #QMI8658AccRange_8g
-        acc_lsb_div=(1<<12)
-        #QMI8658GyrRange_512dps
-        gyro_lsb_div = 64
-        for i in range(3):
-            xyz[i]=raw_xyz[i]/acc_lsb_div#(acc_lsb_div/1000.0)
-            xyz[i+3]=raw_xyz[i+3]*1.0/gyro_lsb_div
-        return xyz
-
-
-#Draw line and show   
-def Touch_HandWriting():
-    x = y = data = 0
-    color = 0
-    Touch.Flgh = 0
-    Touch.Flag = 0
-    Touch.Mode = 1
-    Touch.Set_Mode(Touch.Mode)
-    
-    LCD.fill(LCD.white)
-    LCD.rect(0, 0, 35, 208,LCD.red,True)
-    LCD.rect(0, 0, 208, 35,LCD.green,True)
-    LCD.rect(205, 0, 240, 240,LCD.blue,True)
-    LCD.rect(0, 205, 240, 240,LCD.brown,True)
-    LCD.show()
-    
-    Touch.tim.init(period=1, callback=Touch.Timer_callback)
-    try:
-        while True:
-            if Touch.Flgh == 0 and Touch.X_point != 0:
-                Touch.Flgh = 1
-                x = Touch.X_point
-                y = Touch.Y_point
-                
-            if Touch.Flag == 1:
-                if (Touch.X_point > 34 and Touch.X_point < 205) and (Touch.Y_point > 34 and Touch.Y_point < 205):
-                    Touch.Flgh = 3
-                else:
-                    if (Touch.X_point > 0 and Touch.X_point < 33) and (Touch.Y_point > 0 and Touch.Y_point < 208):
-                        color = LCD.red
-                        
-                    if (Touch.X_point > 0 and Touch.X_point < 208) and (Touch.Y_point > 0 and Touch.Y_point < 33):
-                        color = LCD.green
-                        
-                    if (Touch.X_point > 208 and Touch.X_point < 240) and (Touch.Y_point > 0 and Touch.Y_point < 240):
-                        color = LCD.blue
-                        
-                    if (Touch.X_point > 0 and Touch.X_point < 240) and (Touch.Y_point > 208 and Touch.Y_point < 240):
-                        LCD.fill(LCD.white)
-                        LCD.rect(0, 0, 35, 208,LCD.red,True)
-                        LCD.rect(0, 0, 208, 35,LCD.green,True)
-                        LCD.rect(205, 0, 240, 240,LCD.blue,True)
-                        LCD.rect(0, 205, 240, 240,LCD.brown,True)
-                        LCD.show()
-                    Touch.Flgh = 4
-                    
-                if Touch.Flgh == 3:
-                    time.sleep(0.001) #Prevent disconnection
-                    if Touch.l < 25:           
-                        Touch.Flag = 0
-                        LCD.line(x,y,Touch.X_point,Touch.Y_point,color)
-                        LCD.Windows_show(x,y,Touch.X_point,Touch.Y_point)
-                        Touch.l=0
-                    else:
-                        Touch.Flag = 0
-                        LCD.pixel(Touch.X_point,Touch.Y_point,color)
-                        LCD.Windows_show(x,y,Touch.X_point,Touch.Y_point)
-                        Touch.l=0
-                        
-                    x = Touch.X_point
-                    y = Touch.Y_point
-    except KeyboardInterrupt:
-        pass
-
-#Gesture 
-def Touch_Gesture():
-    Touch.Mode = 0
-    Touch.Set_Mode(Touch.Mode)
-    LCD.fill(LCD.white)
-#     LCD.show()
-    LCD.write_text('Gesture test',70,90,1,LCD.black)
-    LCD.write_text('Complete as prompted',35,120,1,LCD.black)
-    LCD.show()
-    time.sleep(1)
-    LCD.fill(LCD.white)
-    while Touch.Gestures != 0x01:
-        LCD.fill(LCD.white)
-        LCD.write_text('UP',100,110,3,LCD.black)
-        LCD.show()
-        time.sleep(0.1)
-        
-    while Touch.Gestures != 0x02:
-        LCD.fill(LCD.white)
-        LCD.write_text('DOWN',70,110,3,LCD.black)
-        LCD.show()
-        time.sleep(0.1)
-        
-    while Touch.Gestures != 0x03:
-        LCD.fill(LCD.white)
-        LCD.write_text('LEFT',70,110,3,LCD.black)
-        LCD.show()
-        time.sleep(0.1)
-        
-    while Touch.Gestures != 0x04:
-        LCD.fill(LCD.white)
-        LCD.write_text('RIGHT',60,110,3,LCD.black)
-        LCD.show()
-        time.sleep(0.1)
-        
-    while Touch.Gestures != 0x0C:
-        LCD.fill(LCD.white)
-        LCD.write_text('Long Press',40,110,2,LCD.black)
-        LCD.show()
-        time.sleep(0.1)
-        
-    while Touch.Gestures != 0x0B:
-        LCD.fill(LCD.white)
-        LCD.write_text('Double Click',25,110,2,LCD.black)
-        LCD.show() 
-        time.sleep(0.1)
-
-def DOF_READ():
-    qmi8658=QMI8658()
-    Vbat= ADC(Pin(Vbat_Pin))   
-    Touch.Mode = 0
-    Touch.Set_Mode(Touch.Mode)
-
-    while(True):
-        #read QMI8658
-        xyz=qmi8658.Read_XYZ()
-        
-        LCD.fill(LCD.white)
-        
-        LCD.fill_rect(0,0,240,40,LCD.red)
-        LCD.text("Waveshare",80,25,LCD.white)
-        
-        LCD.fill_rect(0,40,240,40,LCD.blue)
-        # LCD.text("Long Press to Quit",20,57,LCD.white)
-        LCD.write_text("Long Press to Quit",50,57,1,LCD.white)
-        
-        LCD.fill_rect(0,80,120,120,0x1805)
-        LCD.text("ACC_X={:+.2f}".format(xyz[0]),20,100-3,LCD.white)
-        LCD.text("ACC_Y={:+.2f}".format(xyz[1]),20,140-3,LCD.white)
-        LCD.text("ACC_Z={:+.2f}".format(xyz[2]),20,180-3,LCD.white)
-
-        LCD.fill_rect(120,80,120,120,0xF073)
-        LCD.text("GYR_X={:+3.2f}".format(xyz[3]),125,100-3,LCD.white)
-        LCD.text("GYR_Y={:+3.2f}".format(xyz[4]),125,140-3,LCD.white)
-        LCD.text("GYR_Z={:+3.2f}".format(xyz[5]),125,180-3,LCD.white)
-        
-        LCD.fill_rect(0,200,240,40,0x180f)
-        reading = Vbat.read_u16()*3.3/65535 * 3
-        LCD.text("Vbat={:.2f}".format(reading),80,215,LCD.white)
-        
-        LCD.show()
-        if(Touch.Gestures == 0x0C):
-            break
-
 def image_path_generator():
     image_dir = '/images'  # Adjust this if your images are in a different directory
     for file in os.listdir(image_dir):
@@ -742,14 +464,26 @@ def image_path_generator():
                 yield image_dir + '/' + file
 
 def timed_slideshow(LCD, dwell):
+    global display_on
+    display_on = True
     while True:
         for image_path in image_path_generator():
             LCD.show_image(image_path)
             LCD.show()  # Ensure the image is displayed
-            time.sleep(dwell)
+            
+            start_time = time.time()
+            while time.time() - start_time < dwell:
+                if Touch.Gestures == 0x0C:  # Long press
+                    toggle_display(LCD)
+                    Touch.Gestures = 0
+                    time.sleep(0.5)  # Debounce
+                time.sleep(0.1)
+            
             gc.collect()  # Force garbage collection
 
 def touch_slideshow(LCD, Touch):
+    global display_on
+    display_on = True
     image_paths = list(image_path_generator())
     current_index = 0
     
@@ -771,13 +505,27 @@ def touch_slideshow(LCD, Touch):
             current_index = (current_index + 1) % len(image_paths)
         elif Touch.Gestures == 0x04:  # RIGHT swipe
             current_index = (current_index - 1) % len(image_paths)
+        elif Touch.Gestures == 0x0C:  # Long press
+            toggle_display(LCD)
+            time.sleep(0.5)  # Debounce
 
         # Reset gesture
         Touch.Gestures = 0
 
         gc.collect()  # Force garbage collection
+        
+def toggle_display(LCD):
+    global display_on
+    if display_on:
+        LCD.set_bl_pwm(0)  # Turn off backlight
+    else:
+        LCD.set_bl_pwm(65535)  # Turn on backlight
+    display_on = not display_on
 
 if __name__=='__main__':
+    
+    global display_on
+    display_on = True
   
     LCD = LCD_1inch28()
     LCD.set_bl_pwm(65535)
@@ -786,3 +534,4 @@ if __name__=='__main__':
 
     #timed_slideshow(LCD, 0.1)
     touch_slideshow(LCD, Touch)
+
